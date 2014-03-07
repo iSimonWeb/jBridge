@@ -3,9 +3,10 @@ jBridge
 
 > jBridge, the missing piece. An easy, abstract and versatile AJAX + History API site manager.
 
-DEMO / Official site
+DEMOS
 ======
-[getjBridge.com](http://getjbridge.com/)
+[Official site, getjBridge.com](http://getjbridge.com/)
+[First site developed with jBridge](http://www.lafarfallaeilgirasole.com/)
 
 Just few words first.
 -------
