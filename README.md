@@ -6,7 +6,7 @@ jBridge
 Demos
 ======
 + [Official site, getjBridge.com](http://getjbridge.com/)
-+ [First site developed with jBridge](http://www.lafarfallaeilgirasole.com/)
++ [First site developed with jBridge](http://www.lafarfallaeilgirasole.it/)
 
 Just few words first.
 -------
