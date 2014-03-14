@@ -28,6 +28,12 @@
 				// @type: CSS selector
 				// Matches anchors to be AJAXified
 				internalAnchors: 'a[href^="/"]',
+				// define ajax request type
+				usePost: true,
+				// define ajax request format (if false -> json)
+				useJsonP: false,
+				// define additional headers on ajax request
+				addHeaders: null,
 				// 
 				onUnload: bridge.bypass,
 				//
@@ -265,7 +271,25 @@
 		bridge.requestPage = function() {
 			bridge.log('Requesting page: ' + window.location);
 			
-			return $.post(window.location);
+			var ajaxRequest = {
+			    url: window.location,
+		    	    type: settings.usePost ? 'post' : 'get',
+			    dataType: settings.useJsonP ? 'jsonp': 'json',
+			    success: function (data) {
+			        // Log success ajax request
+				bridge.log('Successfull page retrieve');
+			    }
+			};
+			
+			//header example: 
+			//Header_Name_One: 'Header Value One',   //If your header name has spaces or any other char not appropriate
+		        //"Header Name Two": 'Header Value Two'  //for object property name, use quoted notation shown in second
+			if (settings.addHeaders){
+				ajaxRequest.headers = settings.addHeaders;
+			} 
+			
+			//send via get or post with additional headers in json or jsonp format
+			return $.ajax(ajaxRequest);
 		};
 		
 		/**
