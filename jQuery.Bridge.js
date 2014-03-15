@@ -1,5 +1,5 @@
 /**
-*	@project: jQuery.Bridge
+*	@project: jBridge
 *	@description: and easy, abstract and versatile AJAX + History API site manager
 *	@author: Laser Design Studio http://laserdesignstudio.it
 */
@@ -298,9 +298,11 @@
 		};
 		
 		/**
-		* Make a POST request using window.location
+		* Make a GET request using window.location,
+		* jBridge request can be recognized on backend by checking
+		* jQuery.axax() request header -> X-Requested-With: "XMLHttpRequest"
 		*
-		* @return {$.Deferred}
+		* @return {jQuery.Deferred}
 		*/
 		bridge.requestPage = function() {
 			bridge.log('Requesting page: ' + window.location);
