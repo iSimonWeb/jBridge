@@ -1,5 +1,5 @@
 /**
-*	@project: jQuery.Bridge v0.1
+*	@project: jQuery.Bridge
 *	@description: and easy, abstract and versatile AJAX + History API site manager
 *	@author: Laser Design Studio http://laserdesignstudio.it
 */
@@ -10,6 +10,27 @@
 		return synchronize(functions.slice(0, -1)).then(functions.pop());
 	};
 	
+	var getSetupFunctions = function(obj, pathname) {
+		// If obj is function, return it inside an array
+		if ($.isFunction(obj)) return [obj];
+		
+		// Initialize array and iterate through obj properties
+		var f = [];
+		for (var key in obj)
+			// If pathname string starts with current properties name
+			if (pathname.indexOf(key) == 0)
+				// Push current function to array
+				f.push(obj[key]);
+		
+		// If no matching function found
+		if (f.length == 0)
+			// return bridge.bypass inside an array
+			return [bridge.bypass];
+		else
+			// else return the array of matching functions
+			return f;
+	};
+	
 	jQuery.Bridge = function(options) {
 		var bridge = {},
 			globalDeferred = null,
@@ -18,32 +39,67 @@
 // Plugin's options obj ============================================================
 // =================================================================================
 		var settings = $.extend({
-				// @type: CSS selector
-				// Matches menu(s)' anchors
+				/**
+				* @type: CSS selector
+				* Matches menu(s)' anchors
+				*/
 				menuAnchors: 'nav.main a',
-				// @type: CSS selector / null
-				// Matches anchor's parent that will get .active class
-				// leave null if you want that class on anchors
+				/**
+				* @type: CSS selector / null
+				* Matches anchor's parent that will get .active class
+				* leave null if you want that class on anchors
+				*/
 				menuAnchorsContainer: null,
-				// @type: CSS selector
-				// Matches anchors to be AJAXified
+				/**
+				* @type: CSS selector
+				* Matches anchors to be AJAXified
+				*/
 				internalAnchors: 'a[href^="/"]',
-				// 
+				/**
+				* @type: function / object
+				* - defaults to bridge.bypass to return a resolved Promise doing nothing;
+				* - can be overridden with a function that must return a Promise
+				*	that will be manually resolved by the function itself,
+				*	or it can return bridge.bypass() if there's nothing to wait for;
+				* - can be overridden with an hash like this:
+				*		{
+				*			'/': function() {},
+				*			'/pathname': function() {},
+				*			'/path/to/page': function() {},
+				*		}
+				*	property name is a part of the route(s) to be set up with the function
+				*/
 				onUnload: bridge.bypass,
-				//
-				onPageUnload: {},
-				// 
+				/**
+				* @type: function / object
+				* same as onUnload, the only difference is that onLoad is called after
+				* the current page load (of course)
+				*/
 				onLoad: bridge.bypass,
-				// 
-				onScriptsLoad: function() {},
-				// 
-				onPageLoad: {},
-				// Fired every time hashFragment is changed
+				/**
+				* @type: function / null
+				* a function to be called every time hashFragment changes
+				*/
 				onHashChange: null,
-				// Fired on form-submit
-				onFormSubmit: function() {},
-				// Hey Bridge, talk to me!
-				debug: false
+				/**
+				* @type: function / null
+				* a function to be called on form submit
+				*/
+				//onFormSubmit: function() {},
+				/**
+				* @type: boolean
+				* Hey jBridge, talk to me!
+				*/
+				debug: false,
+				/**
+				*
+				*/
+				requestJsonp: false,
+				/**
+				*
+				*/
+				additionalRequestHeaders: {},
+				
 			}, options);
 		
 // Elements cache ==================================================================
@@ -91,27 +147,43 @@
 			history.replaceState(history.state, '', bridge.getPathname() + url);
 		};
 		
+		/**
+		* Put bridge on hold, waiting for an amount of bridge.release()
+		* ugual to stackCount to proceed to the next step.
+		* 
+		* @param {number} stackCount
+		* @return {jQuery.Promise}
+		*/
 		bridge.hold = function(stackCount) {
 			bridge.log('Bridge is on hold');
 			
 			if (globalDeferred === null) {
-				if (stackCount !== undefined)
-					deferredStackCount = stackCount;
-				else deferredStackCount++;
+				// Set deferredStackCount to stackCount or 1
+				deferredStackCount = (stackCount !== undefined) ? stackCount : 1;
 				
+				// Create a new deferred and return its promise
 				globalDeferred = new $.Deferred();
 				return globalDeferred.promise();
 			}
 		};
 		
+		/**
+		* Release bridge from hold.
+		* decrease deferredStackCount and if 0 .resolve() the globalDeferred
+		*
+		* @return {jQuery.Promise}
+		*/
 		bridge.release = function() {
 			if (globalDeferred === null) return;
 			
+			// Decrease the stack count
 			if (deferredStackCount > 0)
 				deferredStackCount--;
 			
 			bridge.log('Stack length -> ' + deferredStackCount);
-				
+			
+			// If stack count is 0, .resolve() the globalDeferred
+			// as nullify it
 			if (deferredStackCount == 0) {
 				bridge.log('Bridge released');
 				
@@ -120,6 +192,12 @@
 			}
 		};
 		
+		/**
+		* Just return a promise from the globalDeferred,
+		* if it's null, returns a resolved one
+		*
+		* @return {jQuery.Promise}
+		*/
 		bridge.getPromise = function() {
 			if (globalDeferred === null)
 				return bridge.bypass();
@@ -130,21 +208,9 @@
 		/**
 		* Do nothing, used when bridge can continue executing
 		*
-		* @return {$.Promise}
+		* @return {jQuery.Promise}
 		*/
 		bridge.bypass = function() {return (new $.Deferred()).resolve().promise();};
-		
-		// Match current page function
-		var findRelatedFunction = function(obj) {
-			var f = bridge.bypass(),
-				pathname = bridge.getPathname();
-			
-			for (var key in obj)
-				if (pathname.indexOf(key) == 0)
-					f = obj[key];
-			
-			return f;
-		};
 		
 // Event Handlers ==================================================================
 // =================================================================================
@@ -178,31 +244,6 @@
 			return false;
 		});
 		
-// TO BE FIXED
-		// Handle form submit
-		/*$(document).on('submit', 'form', function(e) {
-			e.preventDefault();
-			
-			// Retrieve data
-			var $this = $(this),
-				formID = $this.attr('id'),
-				method = $this.attr('method').toLowerCase(),
-				url = $this.attr('action'),
-				data = JSON.stringify($this.serializeObject());
-			
-			if ($.inArray(method, ['get', 'post', 'put', 'delete']) === -1)
-				return;
-			
-			$this.addClass('loading');
-			$defer = $.ajax({
-						'url': url,
-						'type': method,
-						'data': data,
-						'context': this
-					});
-			settings.onFormSubmit($defer);
-		});*/
-		
 		// Handle onpopstate event preventing the first
 		// and unuseful fire in webkit browsers
 		var initialLoad = false;
@@ -217,13 +258,13 @@
 		// Wait for window onLoad to init plugin
 		$(window).one('load', function() {
 			var currentPath = bridge.getPathname();
-			var currentPageLoad = findRelatedFunction(settings.onPageLoad);
+			var loadSetup = getSetupFunctions(settings.onLoad, currentPath);
 			
 			// Select current menu item
 			setActiveItem();
 			
 			// Synchronize plugin operation
-			synchronize([settings.onLoad, currentPageLoad]);
+			synchronize(loadSetup);
 			
 			// Enable onpopstate listener
 			setTimeout(function() {initialLoad = true;}, 0);
@@ -238,34 +279,43 @@
 		*/
 		var setActiveItem = function() {
 			var currentPath = bridge.getPathname(),
-				$targetAnchors = $anchors;
+				$targetElements = $anchors;
 			
+			// Remove previously added .active classes
 			$anchors.removeClass('active');
+			// Filter $anchors keeping only the ones whose href
+			// has a match in the currentPath
+			$targetElements = $targetElements.filter(function(index) {
+				return currentPath.indexOf($(this).attr('href')) != -1;
+			});
 			
-			if (settings.menuAnchorsContainer === null)
-				$targetAnchors
-					.filter(function(index) {
-						return currentPath.indexOf($(this).attr('href')) != -1;
-					})
-					.addClass('active');
-			else
-				$targetAnchors
-					.filter(function(index) {
-						return currentPath.indexOf($(this).attr('href')) != -1;
-					})
-					.parents(settings.menuAnchorsContainer)
-							.addClass('active');
+			// If an anchors container has been set, select them
+			if (settings.menuAnchorsContainer !== null)
+				$targetElements = $targetElements.parents(settings.menuAnchorsContainer)
+			
+			// Finally add .active classes
+			$targetElements.addClass('active');
 		};
 		
 		/**
 		* Make a POST request using window.location
 		*
-		* @return {jQuery.Deferred}
+		* @return {$.Deferred}
 		*/
 		bridge.requestPage = function() {
 			bridge.log('Requesting page: ' + window.location);
 			
-			return $.post(window.location);
+			var requestSettings = {
+				url: window.location,
+				dataType: settings.requestJsonp ? 'jsonp': 'json',
+				headers: settings.additionalRequestHeaders,
+				success: function (data) {
+					// Log success ajax request
+					bridge.log('Successfully retireved page: ' + window.location);
+				}
+			};
+			
+			return $.ajax(requestSettings).promise();
 		};
 		
 		/**
@@ -387,25 +437,25 @@
 		};
 		
 		/**
-		* Synchronize plugin operations
+		* "Main" jBridge function.
+		* Set the active item(s) in the menu(s) and call synchronously
+		* the page update procedure
 		*/
 		bridge.load = function() {
 			var currentPath = bridge.getPathname();
-			var currentPageUnload = findRelatedFunction(settings.onPageUnload);
-			var currentPageLoad = findRelatedFunction(settings.onPageLoad);
+			var unloadSetup = getSetupFunctions(settings.onUnload, currentPath);
+			var loadSetup = getSetupFunctions(settings.onLoad, currentPath);
 			
 			// Select current menu item
 			setActiveItem();
 			
 			// Synchronize plugin operation
-			synchronize([
-				settings.onUnload,
-				currentPageUnload,
-				bridge.requestPage,
-				bridge.replaceContent,
-				settings.onLoad,
-				currentPageLoad
-			]);
+			synchronize(
+				unloadSetup.concat([
+					bridge.requestPage,
+					bridge.replaceContent,
+				]).concat(loadSetup)
+			);
 		};
 		
 		return bridge;
