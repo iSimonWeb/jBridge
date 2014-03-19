@@ -10,6 +10,16 @@
 		return synchronize(functions.slice(0, -1)).then(functions.pop());
 	};
 	
+	/*var abort = false;
+	var synchronize = function(functions) {
+		//console.log('synchronize ' + functions);
+		if (functions.length == 1) {
+			abort = false;
+			return functions[0]();
+		}
+		return functions[0]().then( synchronize.bind(this, functions.slice(1, (abort) ? 2 : functions.length)) );
+	};*/
+	
 	var getSetupFunctions = function(obj, pathname) {
 		// If obj is function, return it inside an array
 		if ($.isFunction(obj)) return [obj];
@@ -125,7 +135,7 @@
 		*/
 		bridge.log = function(message) {
 			if (settings.debug)
-				console.log(message);
+				console.log('jBridge: ' + message);
 		}
 		
 		/**
@@ -155,7 +165,7 @@
 		* @return {jQuery.Promise}
 		*/
 		bridge.hold = function(stackCount) {
-			bridge.log('Bridge is on hold');
+			bridge.log('on hold');
 			
 			if (globalDeferred === null) {
 				// Set deferredStackCount to stackCount or 1
@@ -180,12 +190,12 @@
 			if (deferredStackCount > 0)
 				deferredStackCount--;
 			
-			bridge.log('Stack length -> ' + deferredStackCount);
+			bridge.log('stack length -> ' + deferredStackCount);
 			
 			// If stack count is 0, .resolve() the globalDeferred
 			// as nullify it
 			if (deferredStackCount == 0) {
-				bridge.log('Bridge released');
+				bridge.log('released');
 				
 				globalDeferred.resolve();
 				globalDeferred = null;
@@ -226,7 +236,7 @@
 				return false;
 			
 			// Log link click
-			bridge.log('Click on: "' + href + '"');
+			bridge.log('click on internal anchor: ' + href);
 			
 			// Else push anchor href and load page
 			bridge.goto(href);
@@ -238,7 +248,7 @@
 				return false;
 			
 			var hashFragment = $(this).attr('href');
-			//bridge.replaceAppend(hashFragment);
+			bridge.log('click on hash anchor: ' + href);
 			settings.onHashChange(hashFragment);
 			
 			return false;
@@ -250,6 +260,9 @@
 		window.onpopstate = function() {
 			// Check if window.load has been fired once
 			if (!initialLoad) return false;
+			
+			// Log
+			bridge.log('onpopstate triggered');
 			
 			bridge.load();
 			return false;
@@ -293,19 +306,23 @@
 			if (settings.menuAnchorsContainer !== null)
 				$targetElements = $targetElements.parents(settings.menuAnchorsContainer)
 			
-			// Finally add .active classes
-			$targetElements.addClass('active');
+			// Log error if no elements targeted
+			if (!$targetElements.length)
+				bridge.log("couldn't find any menu item to activate, check menu settings or your menu markup.");
+			else
+				// Finally add .active classes
+				$targetElements.addClass('active');
 		};
 		
 		/**
 		* Make a GET request using window.location,
 		* jBridge request can be recognized on backend by checking
-		* jQuery.axax() request header -> X-Requested-With: "XMLHttpRequest"
+		* jQuery.ajax() request header -> X-Requested-With: "XMLHttpRequest"
 		*
 		* @return {jQuery.Deferred}
 		*/
 		bridge.requestPage = function() {
-			bridge.log('Requesting page: ' + window.location);
+			bridge.log('requesting page: ' + window.location);
 			
 			var requestSettings = {
 				url: window.location,
@@ -313,17 +330,16 @@
 				headers: settings.additionalRequestHeaders,
 				success: function (data) {
 					// Log success ajax request
-					bridge.log('Successfully retireved page: ' + window.location);
+					bridge.log('successfully retrieved page: ' + window.location);
 				}
 			};
 			
-			return $.ajax(requestSettings).promise();
+			return $.ajax(requestSettings);
 		};
 		
 		/**
 		* Replace sections received by requestPage
-		* 'title', 'stylesheets' and 'scripts'
-		* are treated as special sections
+		* 'title', 'stylesheets' and 'scripts' are treated as special sections
 		*
 		* @param {Object} pageSections
 		* @return {jQuery.Promise}
@@ -343,11 +359,15 @@
 			delete pageSections['scripts'];
 			
 			// Log sections replacement
-			bridge.log('Replacing section(s)');
+			bridge.log('replacing sections');
 			// Replace sections
+			var sectionCount = 0;
 			$.each(pageSections, function(name, content) {
+				sectionCount++;
 				$('#' + name).html($.parseHTML(content));
 			});
+			// Log section count
+			bridge.log('replaced ' + sectionCount + ' section' + ((sectionCount > 1) ? 's' : ''));
 			
 			if (scriptsPromise)
 				return scriptsPromise;
@@ -356,8 +376,7 @@
 		};
 		
 		/**
-		* Check if styles do not exist in DOM
-		* and append them if necessary
+		* Check if styles do not exist in DOM and append them if necessary
 		*
 		* @param {string} styles
 		*/
@@ -368,7 +387,7 @@
 			if (!$styles.length) return;
 			
 			// Log stylesheets discovery
-			bridge.log($styles.length + ' stylesheet(s) found, checking existance');
+			bridge.log($styles.length + ' stylesheet' + (($styles.length > 1) ? 's' : '') + ' found, checking existance');
 			
 			$.each($styles, function(index, style) {
 				var $style = $(style);
@@ -380,7 +399,7 @@
 					return;
 				
 				// Log style's href
-				bridge.log('Appending stylesheet -> ' + href);
+				bridge.log('appending stylesheet -> ' + href);
 				
 				// Otherwise append the stylesheet to head
 				$('head').append($style);
@@ -388,22 +407,20 @@
 		};
 		
 		/**
-		* Check if scripts do not exist in DOM
-		* and append them if necessary.
-		* Call settings.onScriptsLoad on appended scripts load
+		* Check if scripts do not exist in DOM and append them if necessary.
 		*
 		* @param {string} scripts
 		* @return {jQuery.Promise}
 		*/
 		bridge.appendScripts = function(scripts) {
 			var $scripts = $($.trim(scripts));
-				//deferreds = [];
 			
 			// If no script passed, exit
 			if (!$scripts.length) return;
 			
 			// Log script discovery
-			bridge.log($scripts.length + ' script(s) found, checking existance');
+			bridge.log($scripts.length + ' script' + (($scripts.length > 1) ? 's' : '') + ' found, checking existance');
+			// Hold jBridge for any script not async or which src contains bridge.release
 			bridge.hold(
 				$scripts.filter(':not([async])').length +
 				$scripts.filter('[src*="bridge.release"]').length
@@ -425,7 +442,7 @@
 				}
 				
 				// Log script's src
-				bridge.log('Appending script -> ' + src);
+				bridge.log('appending script -> ' + src);
 				
 				// Create script element
 				$script = $('<script />');
@@ -443,7 +460,7 @@
 		* Set the active item(s) in the menu(s) and call synchronously
 		* the page update procedure
 		*/
-		bridge.load = function() {
+		bridge.load = function() {		
 			var currentPath = bridge.getPathname();
 			var unloadSetup = getSetupFunctions(settings.onUnload, currentPath);
 			var loadSetup = getSetupFunctions(settings.onLoad, currentPath);
