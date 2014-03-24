@@ -1,62 +1,29 @@
 /**
-*	@project: jBridge
+*	@project: jBridge, the missing piece
+*	@version: 1.0
 *	@description: and easy, abstract and versatile AJAX + History API site manager
 *	@author: Laser Design Studio http://laserdesignstudio.it
 */
-(function($) {
-	var synchronize = function(functions) {
-		if (functions.length == 1)
-			return functions[0]();
-		return synchronize(functions.slice(0, -1)).then(functions.pop());
-	};
-	
-	/*var abort = false;
-	var synchronize = function(functions) {
-		//console.log('synchronize ' + functions);
-		if (functions.length == 1) {
-			abort = false;
-			return functions[0]();
-		}
-		return functions[0]().then( synchronize.bind(this, functions.slice(1, (abort) ? 2 : functions.length)) );
-	};*/
-	
-	var getSetupFunctions = function(obj, pathname) {
-		// If obj is function, return it inside an array
-		if ($.isFunction(obj)) return [obj];
-		
-		// Initialize array and iterate through obj properties
-		var f = [];
-		for (var key in obj)
-			// If pathname string starts with current properties name
-			if (pathname.indexOf(key) == 0)
-				// Push current function to array
-				f.push(obj[key]);
-		
-		// If no matching function found
-		if (f.length == 0)
-			// return bridge.bypass inside an array
-			return [bridge.bypass];
-		else
-			// else return the array of matching functions
-			return f;
-	};
-	
-	jQuery.Bridge = function(options) {
+(function($) {	
+	jQuery.jBridge = function(options) {
 		var bridge = {},
-			globalDeferred = null,
-			deferredStackCount = 0;
+			globalDeferred = $.Deferred().resolve().promise(),
+			deferredStackCount = 0,
+			bridgeQueue = $({});
 		
-// Plugin's options obj ============================================================
+		// Plugin's options obj ============================================================
 // =================================================================================
 		var settings = $.extend({
 				/**
 				* @type: CSS selector
-				* Matches menu(s)' anchors
+				* Matches menu(s) anchors
+				*
+				* #examples: '#you .just > #have-to.match .menu a'
 				*/
 				menuAnchors: 'nav.main a',
 				/**
 				* @type: CSS selector / null
-				* Matches anchor's parent that will get .active class
+				* Matches anchors' parent that will get .active class
 				* leave null if you want that class on anchors
 				*/
 				menuAnchorsContainer: null,
@@ -67,46 +34,59 @@
 				internalAnchors: 'a[href^="/"]',
 				/**
 				* @type: function / object
-				* - defaults to bridge.bypass to return a resolved Promise doing nothing;
-				* - can be overridden with a function that must return a Promise
-				*	that will be manually resolved by the function itself,
-				*	or it can return bridge.bypass() if there's nothing to wait for;
-				* - can be overridden with an hash like this:
+				* - defaults to bridge.bypass to just skip to the next function;
+				* - can be overridden with a function that must .hold() and .release()
+				* 	jBridge during its execution or just .bypass() if it can run asynchronously;
+				* - can be overridden with an object like that:
 				*		{
 				*			'/': function() {},
 				*			'/pathname': function() {},
 				*			'/path/to/page': function() {},
 				*		}
-				*	property name is a part of the route(s) to be set up with the function
+				*	property name is a part of the route(s) that has
+				*	to be set up with that function
 				*/
 				onUnload: bridge.bypass,
 				/**
 				* @type: function / object
 				* same as onUnload, the only difference is that onLoad is called after
-				* the current page load (of course)
+				* the page load (of course)
 				*/
 				onLoad: bridge.bypass,
 				/**
+				* @type Function( jqXHR jqXHR, String textStatus, String errorThrown )
+				* Called on AJAX page request error
+				*/
+				onError: bridge.bypass,
+				/**
 				* @type: function / null
-				* a function to be called every time hashFragment changes
+				* Called on hashFragment change
 				*/
 				onHashChange: null,
 				/**
-				* @type: function / null
-				* a function to be called on form submit
+				* CURRENTLY UN-IMPLEMENTED
+				* @type: function
+				* Called on form submit, context is the submitted form
+				*
+				* onFormSubmit: bridge.bypass,
 				*/
-				//onFormSubmit: function() {},
 				/**
 				* @type: boolean
 				* Hey jBridge, talk to me!
 				*/
 				debug: false,
 				/**
-				*
+				* @type boolean
+				* Whether or not to request responseType to be jsonp
+				* (May be removed soon)
 				*/
 				requestJsonp: false,
 				/**
+				* @type object
+				* Additional request headers that to be added
+				* to jBridge GET request
 				*
+				* #example: {headerName: 'Header-Value'}
 				*/
 				additionalRequestHeaders: {},
 				
@@ -120,6 +100,32 @@
 // Utility functions ===============================================================
 // =================================================================================
 		/**
+		* Match related setup function in an object by pathname
+		*
+		* @param {object} obj
+		* @param {string} pathname
+		* @return {array} an array with matching functions
+		*/
+		var getSetupFunctions = function(obj, pathname) {
+			// If obj is function, return it inside an array
+			if ($.isFunction(obj)) return [obj];
+			
+			// Initialize array and iterate through obj properties
+			var f = [];
+			for (var key in obj)
+				// If pathname string starts with current properties name
+				if (pathname.indexOf(key) == 0)
+					// Push current function to array
+					f.push(obj[key]);
+			
+			// If no matching function found push bridge.bypass
+			if (f.length == 0) f.push(bridge.bypass);
+			
+			// Return the array of matching functions
+			return f;
+		};
+		
+		/**
 		* Returns current pathname
 		*
 		* @return {string}
@@ -130,26 +136,24 @@
 		
 		/**
 		* Logs 'message' if settings.debug is true
+		* different type of log can be set via second parameter
 		*
 		* @params {mixed} message, something to log
+		* @param {number} logType
 		*/
-		bridge.log = function(message) {
+		bridge.LOG_MESSAGE = 0;
+		bridge.LOG_WARN = 1;
+		bridge.LOG_ERROR = 2;
+		bridge.log = function(message, logType) {
+			methods = ['info', 'warn', 'error'];
+			logType = (logType) ? logType : 0;
+			
 			if (settings.debug)
-				console.log('jBridge: ' + message);
+				console[methods[logType]]('jBridge: ' + message);
 		}
 		
 		/**
-		* Replace current pathname and load url
-		* 
-		* @param {string} url
-		*/
-		bridge.goto = function(url) {
-			history.pushState({'route': url}, '', url);
-			bridge.load();
-		};
-		
-		/**
-		* Append 'url' to current pathname
+		* Append 'url' to current pathname by replaceState
 		*
 		* @param {string} url
 		*/
@@ -164,63 +168,59 @@
 		* @param {number} stackCount
 		* @return {jQuery.Promise}
 		*/
-		bridge.hold = function(stackCount) {
+		bridge.hold = function hold(stackCount) {
 			bridge.log('on hold');
 			
-			if (globalDeferred === null) {
+			if (globalDeferred.state() != 'resolved' || globalDeferred.state() != 'rejected') {
 				// Set deferredStackCount to stackCount or 1
-				deferredStackCount = (stackCount !== undefined) ? stackCount : 1;
+				deferredStackCount = (stackCount) ? stackCount : 1;
 				
 				// Create a new deferred and return its promise
-				globalDeferred = new $.Deferred();
+				// Change state to busy
+				globalDeferred = $.Deferred();
 				return globalDeferred.promise();
 			}
 		};
 		
 		/**
-		* Release bridge from hold.
-		* decrease deferredStackCount and if 0 .resolve() the globalDeferred
+		* Release bridge from hold and decrease deferredStackCount
+		* if stackCount is 0, .resolve() globalDeferred, dequeue() and log
 		*
 		* @return {jQuery.Promise}
 		*/
-		bridge.release = function() {
-			if (globalDeferred === null) return;
+		bridge.release = function release() {
+			if (globalDeferred.state() == 'resolved' || globalDeferred.state() == 'rejected')
+				return;
 			
-			// Decrease the stack count
-			if (deferredStackCount > 0)
-				deferredStackCount--;
-			
+			// Decrease the stack count and log
+			if (deferredStackCount > 0) deferredStackCount--;
 			bridge.log('stack length -> ' + deferredStackCount);
 			
-			// If stack count is 0, .resolve() the globalDeferred
-			// as nullify it
+			// If stack count is 0 resolve deferred and dequeue
 			if (deferredStackCount == 0) {
 				bridge.log('released');
-				
 				globalDeferred.resolve();
-				globalDeferred = null;
+				bridgeQueue.dequeue('op');
 			}
 		};
 		
 		/**
-		* Just return a promise from the globalDeferred,
-		* if it's null, returns a resolved one
+		* Just return a promise from the globalDeferred
 		*
 		* @return {jQuery.Promise}
 		*/
 		bridge.getPromise = function() {
-			if (globalDeferred === null)
-				return bridge.bypass();
-			
 			return globalDeferred.promise();
 		};
 		
 		/**
-		* Do nothing, used when bridge can continue executing
+		* Execute next function in queue by dequeue()
 		*
 		* @return {jQuery.Promise}
 		*/
-		bridge.bypass = function() {return (new $.Deferred()).resolve().promise();};
+		bridge.bypass = function bypass() {
+			bridgeQueue.dequeue('op');
+		};
 		
 // Event Handlers ==================================================================
 // =================================================================================
@@ -239,17 +239,17 @@
 			bridge.log('click on internal anchor: ' + href);
 			
 			// Else push anchor href and load page
-			bridge.goto(href);
+			bridge.load(href);
 		});
 		
 		// Handle hash-change event if handler has been specified
 		$(document).on('click', 'a[href^=#]', function(e) {
-			if (settings.onHashChange === null)
-				return false;
-			
-			var hashFragment = $(this).attr('href');
-			bridge.log('click on hash anchor: ' + href);
-			settings.onHashChange(hashFragment);
+			if (settings.onHashChange !== null) {
+				// Get hashFragment, log and call onHashChange
+				var hashFragment = $(this).attr('href');
+				bridge.log('click on hash anchor: ' + href);
+				settings.onHashChange(hashFragment);
+			}
 			
 			return false;
 		});
@@ -276,13 +276,16 @@
 			// Select current menu item
 			setActiveItem();
 			
-			// Synchronize plugin operation
-			synchronize(loadSetup);
+			// Queue load setup operations
+			bridgeQueue
+				.clearQueue('op')
+				.queue('op', loadSetup)
+				.dequeue('op');
 			
 			// Enable onpopstate listener
 			setTimeout(function() {initialLoad = true;}, 0);
 		});
-		
+
 // Main functions ==================================================================
 // =================================================================================
 		/**
@@ -308,38 +311,17 @@
 			
 			// Log error if no elements targeted
 			if (!$targetElements.length)
-				bridge.log("couldn't find any menu item to activate, check menu settings or your menu markup.");
+				bridge.log("couldn't find any menu item to activate, check menu settings or your menu markup.", bridge.LOG_WARN);
 			else
 				// Finally add .active classes
 				$targetElements.addClass('active');
 		};
 		
 		/**
-		* Make a GET request using window.location,
-		* jBridge request can be recognized on backend by checking
-		* jQuery.ajax() request header -> X-Requested-With: "XMLHttpRequest"
-		*
-		* @return {jQuery.Deferred}
-		*/
-		bridge.requestPage = function() {
-			bridge.log('requesting page: ' + window.location);
-			
-			var requestSettings = {
-				url: window.location,
-				dataType: settings.requestJsonp ? 'jsonp': 'json',
-				headers: settings.additionalRequestHeaders,
-				success: function (data) {
-					// Log success ajax request
-					bridge.log('successfully retrieved page: ' + window.location);
-				}
-			};
-			
-			return $.ajax(requestSettings);
-		};
-		
-		/**
 		* Replace sections received by requestPage
 		* 'title', 'stylesheets' and 'scripts' are treated as special sections
+		*
+		* #NOTE: title section must contain a <title /> element, not just plain text
 		*
 		* @param {Object} pageSections
 		* @return {jQuery.Promise}
@@ -355,24 +337,19 @@
 			delete pageSections['stylesheets'];
 			
 			// Append scripts
-			var scriptsPromise = bridge.appendScripts(pageSections['scripts']);
+			bridge.appendScripts(pageSections['scripts']);
 			delete pageSections['scripts'];
 			
-			// Log sections replacement
+			// Replace sections and log
 			bridge.log('replacing sections');
-			// Replace sections
 			var sectionCount = 0;
 			$.each(pageSections, function(name, content) {
 				sectionCount++;
-				$('#' + name).html($.parseHTML(content));
+				$('#' + name).html($.parseHTML(content, document, true));
 			});
-			// Log section count
-			bridge.log('replaced ' + sectionCount + ' section' + ((sectionCount > 1) ? 's' : ''));
 			
-			if (scriptsPromise)
-				return scriptsPromise;
-			else
-				return bridge.bypass();
+			// Log replaced section count
+			bridge.log('replaced ' + sectionCount + ' section' + ((sectionCount > 1) ? 's' : ''));
 		};
 		
 		/**
@@ -390,6 +367,7 @@
 			bridge.log($styles.length + ' stylesheet' + (($styles.length > 1) ? 's' : '') + ' found, checking existance');
 			
 			$.each($styles, function(index, style) {
+				// Cache style element and its properties
 				var $style = $(style);
 				var href = $style.attr('href');
 				var name = href.split('/').slice(-1)[0];
@@ -401,7 +379,7 @@
 				// Log style's href
 				bridge.log('appending stylesheet -> ' + href);
 				
-				// Otherwise append the stylesheet to head
+				// Append the stylesheet element to head
 				$('head').append($style);
 			});
 		};
@@ -416,10 +394,11 @@
 			var $scripts = $($.trim(scripts));
 			
 			// If no script passed, exit
-			if (!$scripts.length) return;
+			if (!$scripts.length) return bridge.bypass();
 			
 			// Log script discovery
 			bridge.log($scripts.length + ' script' + (($scripts.length > 1) ? 's' : '') + ' found, checking existance');
+			
 			// Hold jBridge for any script not async or which src contains bridge.release
 			bridge.hold(
 				$scripts.filter(':not([async])').length +
@@ -427,6 +406,7 @@
 			);
 			
 			$.each($scripts, function(index, script) {
+				// Cache script element and its properties
 				var $script = $(script);
 				var src = $script.attr('src');
 				var async = $script.is('[async]');
@@ -444,37 +424,73 @@
 				// Log script's src
 				bridge.log('appending script -> ' + src);
 				
-				// Create script element
+				// Create script element, append it
+				// and wait its load to release jBrisge
 				$script = $('<script />');
 				$('body').append($script);
 				$script.one('load', bridge.release);
 				$script.attr('src', src);
 			});
-			
-			// Return a Promise to wait scripts load
-			return bridge.getPromise();
 		};
 		
 		/**
-		* "Main" jBridge function.
-		* Set the active item(s) in the menu(s) and call synchronously
-		* the page update procedure
+		* Make a GET request using window.location,
+		* jBridge request can be recognized on backend by checking
+		* jQuery.ajax() request header -> X-Requested-With: "XMLHttpRequest"
+		*
+		* @return {jQuery.Deferred}
 		*/
-		bridge.load = function() {		
-			var currentPath = bridge.getPathname();
-			var unloadSetup = getSetupFunctions(settings.onUnload, currentPath);
-			var loadSetup = getSetupFunctions(settings.onLoad, currentPath);
+		bridge.requestPage = function() {
+			bridge.log('requesting page: ' + window.location);
+			
+			var requestSettings = {
+				url: window.location,
+				dataType: settings.requestJsonp ? 'jsonp': 'json',
+				headers: settings.additionalRequestHeaders,
+				success: function(pageSections) {
+					// Replace page content and log ajax request success
+					bridge.log('successfully retrieved page: ' + window.location);
+					bridge.replaceContent(pageSections);
+				},
+				error: function(jqXHR, textStatus, errorThrown) {
+					// Clear queue and queue onError function
+					bridgeQueue
+						.clearQueue('op')
+						.queue('op', [settings.onError.bind(this, arguments)])
+						.dequeue();
+				}
+			};
+			
+			// Hold jBridge and request page,
+			// it'll be released by replaceContent function
+			bridge.hold();
+			$.ajax(requestSettings);
+		};
+		
+		/**
+		* jBridge's "pearl" function.
+		* Set the active item(s) in the menu(s) and execute synchronously
+		* the page update procedure
+		*
+		* @param {string} url, a URL to push and load
+		*/
+		bridge.load = function(url) {
+			// If url given, pushState first
+			if (url) history.pushState({'route': url}, '', url);
+			
+			// Match related setup function by pathname
+			var currentPathname = bridge.getPathname();
+			var unloadSetup = getSetupFunctions(settings.onUnload, currentPathname);
+			var loadSetup = getSetupFunctions(settings.onLoad, currentPathname);
 			
 			// Select current menu item
 			setActiveItem();
 			
-			// Synchronize plugin operation
-			synchronize(
-				unloadSetup.concat([
-					bridge.requestPage,
-					bridge.replaceContent,
-				]).concat(loadSetup)
-			);
+			// Queue page change operations
+			bridgeQueue
+				.clearQueue('op')
+				.queue('op', unloadSetup.concat([bridge.requestPage]).concat(loadSetup))
+				.dequeue('op');
 		};
 		
 		return bridge;
