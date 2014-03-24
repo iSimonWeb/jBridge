@@ -27,9 +27,9 @@ It basically works in *2 way*, “**First Load**” and “**Page Change**”.
 You find a site on [Google](http://google.com), [this one](http://getjbridge.com/) for example, you click on the link and browser load it.
 In case it’s a *jBridge*-enabled site, it will load as *every website* on the web, receiving a *text/html* response via **GET** request.
 When the document will be ready, the plugin will initialize itself, caching elements, attaching event handlers and setting the *.active* menu item.
-After that, [onLoad](http://getjbridge.com/frontend-setup#onLoad) and functions will be executed synchronously.
+After that, [onLoad](http://getjbridge.com/frontend-setup#onLoad) and function(s) will be executed synchronously.
 
 Once jBridge has been initialized, when an anchor that matches the *CSS selector* [internalAnchor](http://getjbridge.com/frontend-setup#internalAnchor) gets clicked, the “**Page Change**” procedure begins.
-First of all, the *.active* menu items get updated (*see [how](http://getjbridge.com/frontend-setup#menuManagement) jBridge matches the right current anchors*). Then the “page” starts to **unload**, the operation queue gets cleared and jBridge executes [onUnload](http://getjbridge.com/frontend-setup#onUnload) function (sync).
+First of all, the *.active* menu items get updated (*see [how](http://getjbridge.com/frontend-setup#menuManagement) jBridge matches the right current anchors*). Then the “page” starts to **unload**, the operation queue gets cleared and jBridge executes [onUnload](http://getjbridge.com/frontend-setup#onUnload) function(s) (sync).
 Secondly, the plugin use the [current pathname](http://getjbridge.com/frontend-setup#currentPathname) to make a **GET** request to the server that will respond with a **json** that can contain: *title*, *styles*, *scripts* and *sections*. The *page title* gets replaced, *styles* and *scripts* after an **existance check** get appended and finally *sections*, matching **sectionName <-> #id** get replaced.
-On styles and scripts load, jBridge end the page change calling [.onLoad()](http://getjbridge.com/frontend-setup#onLoad).
+On styles and scripts load, jBridge end the page change calling [onLoad](http://getjbridge.com/frontend-setup#onLoad) function(s).
