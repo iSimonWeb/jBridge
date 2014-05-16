@@ -1,6 +1,6 @@
 /**
 *	@project: jBridge, the missing piece
-*	@version: 1.0
+*	@version: 1.0.1
 *	@description: and easy, abstract and versatile AJAX + History API site manager
 *	@author: Laser Design Studio http://laserdesignstudio.it
 */
@@ -131,7 +131,7 @@
 		* @return {string}
 		*/
 		bridge.getPathname = function() {
-			return document.location.pathname.replace(/#.*$/, '');
+			return decodeURIComponent(document.location.pathname.replace(/#.*$/, ''));
 		};
 		
 		/**
