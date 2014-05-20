@@ -1,7 +1,7 @@
 /**
 *	@project: jBridge, the missing piece
-*	@version: 1.0.1
-*	@description: and easy, abstract and versatile AJAX + History API site manager
+*	@version: 1.0.2
+*	@description: an easy, abstract and versatile AJAX + History API site manager
 *	@author: Laser Design Studio http://laserdesignstudio.it
 */
 (function($) {	
@@ -94,8 +94,8 @@
 		
 // Elements cache ==================================================================
 // =================================================================================
-		var $body = $('body');
-		var $anchors = $(settings.menuAnchors);
+		var $body = $('body'),
+			$anchors = $(settings.menuAnchors);
 		
 // Utility functions ===============================================================
 // =================================================================================
@@ -131,7 +131,7 @@
 		* @return {string}
 		*/
 		bridge.getPathname = function() {
-			return decodeURIComponent(document.location.pathname.replace(/#.*$/, ''));
+			return document.location.pathname.replace(/#.*$/, '');
 		};
 		
 		/**
@@ -244,20 +244,29 @@
 		
 		// Handle hash-change event if handler has been specified
 		$(document).on('click', 'a[href^=#]', function(e) {
-			if (settings.onHashChange !== null) {
-				// Get hashFragment, log and call onHashChange
-				var hashFragment = $(this).attr('href');
-				bridge.log('click on hash anchor: ' + href);
-				settings.onHashChange(hashFragment);
-			}
+			hashChanged = true;
+			
+			if ($(this).attr('href') == '#') return;
+			if (settings.onHashChange === null) return;
+				
+			// Get hashFragment, log and call onHashChange
+			var hashFragment = $(this).attr('href');
+			bridge.log('click on hash anchor: ' + hashFragment);
+			settings.onHashChange(hashFragment);
 			
 			return false;
 		});
 		
 		// Handle onpopstate event preventing the first
 		// and unuseful fire in webkit browsers
-		var initialLoad = false;
+		var initialLoad = false,
+			hashChanged = false;
 		window.onpopstate = function() {
+			// If hashChanged by clicking a link, return
+			if (hashChanged) {
+				hashChanged = false;
+				return false;
+			}
 			// Check if window.load has been fired once
 			if (!initialLoad) return false;
 			
@@ -270,15 +279,21 @@
 		
 		// Wait for window onLoad to init plugin
 		$(window).one('load', function() {
-			var currentPath = bridge.getPathname();
-			var loadSetup = getSetupFunctions(settings.onLoad, currentPath);
+			var currentPath = bridge.getPathname(),
+				loadSetup = getSetupFunctions(settings.onLoad, currentPath);
 			
 			// Select current menu item
 			setActiveItem();
 			
+			// If hash exist on page load, call onHashChange
+			if (location.hash && settings.onHashChange !== null) {
+				// Get hashFragment, log and call onHashChange
+				bridge.log('found hashFragment onload, calling onHashChange');
+				settings.onHashChange(location.hash);
+			}
+			
 			// Queue load setup operations
 			bridgeQueue
-				.clearQueue('op')
 				.queue('op', loadSetup)
 				.dequeue('op');
 			
@@ -368,9 +383,9 @@
 			
 			$.each($styles, function(index, style) {
 				// Cache style element and its properties
-				var $style = $(style);
-				var href = $style.attr('href');
-				var name = href.split('/').slice(-1)[0];
+				var $style = $(style),
+					href = $style.attr('href'),
+					name = href.split('/').slice(-1)[0];
 				
 				// Check if stylesheet already exist in DOM
 				if ($('link[href$="' + name + '"]').length)
@@ -407,9 +422,8 @@
 			
 			$.each($scripts, function(index, script) {
 				// Cache script element and its properties
-				var $script = $(script);
-				var src = $script.attr('src');
-				var async = $script.is('[async]');
+				var $script = $(script),
+					src = $script.attr('src');
 				
 				// Check if script already exist in DOM
 				if ($('script[src="' + src + '"]').length) {
