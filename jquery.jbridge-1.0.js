@@ -12,7 +12,7 @@
 			bridgeQueue = $({});
 		
 		// Plugin's options obj ============================================================
-// =================================================================================
+		// =================================================================================
 		var settings = $.extend({
 				/**
 				* @type: CSS selector
@@ -313,7 +313,10 @@
 				$targetElements = $anchors;
 			
 			// Remove previously added .active classes
-			$anchors.removeClass('active');
+			if (settings.menuAnchorsContainer === null)
+				$anchors.removeClass('active');
+			else
+				$anchors.parent(settings.menuAnchorsContainer).removeClass('active');
 			// Filter $anchors keeping only the ones whose href
 			// has a match in the currentPath
 			$targetElements = $targetElements.filter(function(index) {
